@@ -19,8 +19,7 @@ struct my_context {
 	int **arrays;
 	int *array;
 	int *arr_sizes;
-	int work_time;
-	int cor_limit;
+	struct timespec start_time;
 	/** ADD HERE YOUR OWN MEMBERS, SUCH AS FILE NAME, WORK TIME, ... */
 };
 
@@ -33,9 +32,9 @@ my_context_new(const char *name, char **filenames, int nfiles,
 	ctx->filenames = filenames;
 	ctx->nfiles = nfiles;
 	ctx->file_ind = file_ind;
-	ctx->work_time = 0;
 	ctx->arrays = arrays;
 	ctx->arr_sizes = sizes;
+	clock_gettime(CLOCK_MONOTONIC, &ctx->start_time);
 	return ctx;
 }
 
@@ -71,6 +70,8 @@ void quicksort(int *arr, int low, int high) {
         int p = partition(arr, low, high);
         quicksort(arr, low, p - 1);
         quicksort(arr, p + 1, high);
+		
+		coro_yield();
     }
 }
 
@@ -86,7 +87,7 @@ coroutine_func_f(void *context)
 	struct coro *this = coro_this();
 	struct my_context *ctx = context;
 
-	while (*ctx->file_ind != ctx->nfiles) {
+	while (*ctx->file_ind < ctx->nfiles) {
 		char *filename = ctx->filenames[*ctx->file_ind];
 		FILE *f = fopen(filename, "r");
 		if (!f) {
@@ -120,6 +121,18 @@ coroutine_func_f(void *context)
 		(*ctx->file_ind)++;
 	}
 
+	struct timespec end_time;
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
+
+	long time_usec = (end_time.tv_sec - ctx->start_time.tv_sec) * 1000000 +
+                   (end_time.tv_nsec - ctx->start_time.tv_nsec) / 1000;
+                   
+    printf("%s time: %ld us\n", ctx->name, time_usec);
+
+	printf("%s switch count: %lld\n",
+	 	ctx->name,
+	    coro_switch_count(this)
+	);
 	coro_switch_count(this);
 	
 	my_context_delete(ctx);
@@ -172,18 +185,18 @@ main(int argc, char **argv)
 
 	coro_sched_init();
 
-	int nfiles = argc - 2;
+	int nfiles = argc - 1;
 
 	int *arrays[nfiles];
 	int sizes[nfiles];
 	int file_ind = 0;
 
 	/* Start several coroutines. */
-	for (int i = 0; i < atoi(argv[1]); ++i) {
+	for (int i = 0; i < nfiles; ++i) {
 		char name[16];
 		sprintf(name, "coro_%d", i);
 
-		coro_new(coroutine_func_f, my_context_new(name, argv + 2, nfiles,
+		coro_new(coroutine_func_f, my_context_new(name, argv + 1, nfiles,
 													&file_ind, arrays, sizes));
 	}
 	/* Wait for all the coroutines to end. */
@@ -194,7 +207,7 @@ main(int argc, char **argv)
 		 * do anything you want. Like check its exit status, for
 		 * example. Don't forget to free the coroutine afterwards.
 		 */
-		printf("Finished %d\n", coro_status(c));
+		printf("finished with status: %d\n\n", coro_status(c));
 		coro_delete(c);
 	}
 	/* All coroutines have finished. */
