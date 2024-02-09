@@ -20,6 +20,8 @@ struct my_context {
 	int *array;
 	int *arr_sizes;
 	struct timespec start_time;
+	struct timespec end_time;
+	long work_time;
 	/** ADD HERE YOUR OWN MEMBERS, SUCH AS FILE NAME, WORK TIME, ... */
 };
 
@@ -34,7 +36,7 @@ my_context_new(const char *name, char **filenames, int nfiles,
 	ctx->file_ind = file_ind;
 	ctx->arrays = arrays;
 	ctx->arr_sizes = sizes;
-	clock_gettime(CLOCK_MONOTONIC, &ctx->start_time);
+	ctx->work_time = 0;
 	return ctx;
 }
 
@@ -65,13 +67,20 @@ int partition(int *arr, int low, int high) {
     return (i + 1);
 }
 
-void quicksort(int *arr, int low, int high) {
+void quicksort(int *arr, int low, int high, struct my_context *ctx) {
     if (low < high) {
         int p = partition(arr, low, high);
-        quicksort(arr, low, p - 1);
-        quicksort(arr, p + 1, high);
+        quicksort(arr, low, p - 1, ctx);
+        quicksort(arr, p + 1, high, ctx);
+		
+        clock_gettime(CLOCK_MONOTONIC, &ctx->end_time);
+
+		ctx->work_time += (ctx->end_time.tv_sec - ctx->start_time.tv_sec) * 1000000 +
+                    (ctx->end_time.tv_nsec - ctx->start_time.tv_nsec) / 1000;
 		
 		coro_yield();
+
+		clock_gettime(CLOCK_MONOTONIC, &ctx->start_time);
     }
 }
 
@@ -86,6 +95,8 @@ coroutine_func_f(void *context)
 
 	struct coro *this = coro_this();
 	struct my_context *ctx = context;
+	
+	clock_gettime(CLOCK_MONOTONIC, &ctx->start_time);
 
 	while (*ctx->file_ind < ctx->nfiles) {
 		char *filename = ctx->filenames[*ctx->file_ind];
@@ -96,14 +107,13 @@ coroutine_func_f(void *context)
 			return 1;
 		}
 		int cur_size = 0;
-		int max_size = 1000;
-		ctx->array = calloc(max_size, sizeof(int));
-
-		while (fscanf(f, "%d", ctx->array + cur_size) == 1)
-		{
+		int max_size = 100;
+		ctx->array = realloc(ctx->array, max_size * sizeof(int));
+		
+		while (fscanf(f, "%d", ctx->array + cur_size) == 1) {
 			cur_size++;
 			if (cur_size == max_size) {
-				max_size += 1000;
+				max_size *= 2;
 				ctx->array = realloc(ctx->array, max_size * sizeof(int));
 			}
 		}
@@ -112,28 +122,20 @@ coroutine_func_f(void *context)
 		ctx->array = realloc(ctx->array, max_size * sizeof(int));
 
 		ctx->arrays[*ctx->file_ind] = ctx->array;
-		ctx->arr_sizes[*ctx->file_ind] = max_size;
+		ctx->arr_sizes[*ctx->file_ind] = cur_size;
 
-		quicksort(ctx->arrays[*ctx->file_ind], 0, max_size - 1);
+		quicksort(ctx->array, 0, cur_size - 1, ctx);
 
 		fclose(f);
 
 		(*ctx->file_ind)++;
 	}
 
-	struct timespec end_time;
-    clock_gettime(CLOCK_MONOTONIC, &end_time);
-
-	long time_usec = (end_time.tv_sec - ctx->start_time.tv_sec) * 1000000 +
-                   (end_time.tv_nsec - ctx->start_time.tv_nsec) / 1000;
-                   
-    printf("%s time: %ld us\n", ctx->name, time_usec);
-
 	printf("%s switch count: %lld\n",
 	 	ctx->name,
 	    coro_switch_count(this)
 	);
-	coro_switch_count(this);
+	printf("%s worked %ld us\n", ctx->name, ctx->work_time);
 	
 	my_context_delete(ctx);
 	/* This will be returned from coro_status(). */
@@ -146,7 +148,6 @@ void mergeArrays(int **arr1, int size1, int *arr2, int size2) {
     for (int i = 0; i < size1; i++) {
         temp[i] = (*arr1)[i];
     }
-
 
 	*arr1 = realloc(*arr1, sizeof(int) * (size1 + size2));
     int i = 0, j = 0, k = 0;
