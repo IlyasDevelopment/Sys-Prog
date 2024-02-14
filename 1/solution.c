@@ -72,8 +72,9 @@ void quicksort(int *arr, int low, int high, struct my_context *ctx) {
         int p = partition(arr, low, high);
         quicksort(arr, low, p - 1, ctx);
         quicksort(arr, p + 1, high, ctx);
-		
-        clock_gettime(CLOCK_MONOTONIC, &ctx->end_time);
+    }
+	else {
+		clock_gettime(CLOCK_MONOTONIC, &ctx->end_time);
 
 		ctx->work_time += (ctx->end_time.tv_sec - ctx->start_time.tv_sec) * 1000000 +
                     (ctx->end_time.tv_nsec - ctx->start_time.tv_nsec) / 1000;
