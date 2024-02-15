@@ -136,6 +136,10 @@ coroutine_func_f(void *context)
 	 	ctx->name,
 	    coro_switch_count(this)
 	);
+
+	clock_gettime(CLOCK_MONOTONIC, &ctx->end_time);
+	ctx->work_time += (ctx->end_time.tv_sec - ctx->start_time.tv_sec) * 1000000 +
+                    (ctx->end_time.tv_nsec - ctx->start_time.tv_nsec) / 1000;
 	printf("%s worked %ld us\n", ctx->name, ctx->work_time);
 	
 	my_context_delete(ctx);
