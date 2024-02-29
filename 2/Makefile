@@ -1,7 +1,7 @@
 GCC_FLAGS = -Wextra -Werror -Wall -Wno-gnu-folding-constant
 
-all: sol.c
-	gcc $(GCC_FLAGS) sol.c
+all: solution.c parser.c
+	gcc $(GCC_FLAGS) solution.c parser.c
 
 clean:
 	rm a.out
