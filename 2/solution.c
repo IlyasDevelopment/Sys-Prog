@@ -152,6 +152,12 @@ execute_command_line(const struct command_line *line, int * exit_flag)
 		return 0;
 }
 
+void child_stopped(int signum)
+{
+	if (signum == SIGCHLD)
+		wait(NULL);
+}
+
 int
 main(void)
 {
@@ -161,6 +167,9 @@ main(void)
 	int exit_flag = 0;
 	int ret_code = 0;
 	struct parser *p = parser_new();
+
+	signal(SIGCHLD, child_stopped);
+
 	while (!exit_flag && (rc = read(STDIN_FILENO, buf, buf_size)) > 0) {
 		parser_feed(p, buf, rc);
 		struct command_line *line = NULL;
