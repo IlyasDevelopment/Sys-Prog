@@ -10,15 +10,36 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-static int
-execute_command_line(const struct command_line *line, int * exit_flag)
+void wait_bg(pid_t * bg_pids, int * bg_num, int opts) {
+	int i;
+	for (i = 0; i < *bg_num; )
+		if (waitpid(bg_pids[i], NULL, opts)) {
+			int j;
+			for (j = i+1; j < *bg_num; j++)
+				bg_pids[j-1] = bg_pids[j];
+			(*bg_num)--;
+		} else
+			i++;
+}
+
+static int execute_command_line(const struct command_line *line, int * exit_flag, pid_t ** pbg_pids, int * bg_num)
 {
 	/* REPLACE THIS CODE WITH ACTUAL COMMAND EXECUTION */
 	assert(line != NULL);
 	pid_t tid = -1;
 
-	if ((int)line->is_background)
+	wait_bg(*pbg_pids, bg_num, WNOHANG);
+
+	if ((int)line->is_background) {
 		tid = fork();
+		if (tid == 0) {
+			*bg_num = 0;
+		} else {
+			*pbg_pids = (pid_t *) realloc(*pbg_pids, ((*bg_num)+1)*sizeof(pid_t));
+			(*pbg_pids)[*bg_num] = tid;
+			(*bg_num)++;
+		}
+	}
 
 	if (tid <= 0) {
 		int old_stdout = dup(STDOUT_FILENO);
@@ -152,23 +173,16 @@ execute_command_line(const struct command_line *line, int * exit_flag)
 		return 0;
 }
 
-void child_stopped(int signum)
-{
-	if (signum == SIGCHLD)
-		wait(NULL);
-}
-
-int
-main(void)
+int main(void)
 {
 	const size_t buf_size = 1024;
 	char buf[buf_size];
+	pid_t * bg_pids = NULL;
+	int bg_num = 0;
 	int rc;
 	int exit_flag = 0;
 	int ret_code = 0;
 	struct parser *p = parser_new();
-
-	signal(SIGCHLD, child_stopped);
 
 	while (!exit_flag && (rc = read(STDIN_FILENO, buf, buf_size)) > 0) {
 		parser_feed(p, buf, rc);
@@ -181,10 +195,14 @@ main(void)
 				printf("Error: %d\n", (int)err);
 				continue;
 			}
-			ret_code = execute_command_line(line, &exit_flag);
+			ret_code = execute_command_line(line, &exit_flag, &bg_pids, &bg_num);
 			command_line_delete(line);
 		}
 	}
 	parser_delete(p);
+
+	wait_bg(bg_pids, &bg_num, 0);
+	free(bg_pids);
+
 	return ret_code;
 }
